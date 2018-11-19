@@ -1,3 +1,9 @@
+from __future__ import division
+from __future__ import print_function
+from builtins import str
+from builtins import range
+from builtins import object
+from past.utils import old_div
 import sys, time, argparse
 import tensorflow as tf
 import numpy as np
@@ -204,13 +210,13 @@ class Medgan(object):
         burn_in = 1000
         with tf.Session() as sess:
             saver.restore(sess, modelFile)
-            print 'burning in'
+            print('burning in')
             for i in range(burn_in):
                 randomX = np.random.normal(size=(batchSize, self.randomDim))
                 output = sess.run(x_reconst, feed_dict={x_random:randomX, bn_train:True})
 
-            print 'generating'
-            nBatches = int(np.ceil(float(nSamples)) / float(batchSize))
+            print('generating')
+            nBatches = int(old_div(np.ceil(float(nSamples)), float(batchSize)))
             for i in range(nBatches):
                 randomX = np.random.normal(size=(batchSize, self.randomDim))
                 output = sess.run(x_reconst, feed_dict={x_random:randomX, bn_train:False})
@@ -232,7 +238,7 @@ class Medgan(object):
             if pred > 0.5: hit += 1
         for pred in preds_fake: 
             if pred < 0.5: hit += 1
-        acc = float(hit) / float(total)
+        acc = old_div(float(hit), float(total))
         return acc
 
     def train(self,
@@ -265,19 +271,19 @@ class Medgan(object):
 
         optimize_ae = tf.train.AdamOptimizer().minimize(loss_ae + sum(all_regs), var_list=ae_vars)
         optimize_d = tf.train.AdamOptimizer().minimize(loss_d + sum(all_regs), var_list=d_vars)
-        optimize_g = tf.train.AdamOptimizer().minimize(loss_g + sum(all_regs), var_list=g_vars+decodeVariables.values())
+        optimize_g = tf.train.AdamOptimizer().minimize(loss_g + sum(all_regs), var_list=g_vars+list(decodeVariables.values()))
 
         initOp = tf.global_variables_initializer()
 
-        nBatches = int(np.ceil(float(trainX.shape[0]) / float(batchSize)))
+        nBatches = int(np.ceil(old_div(float(trainX.shape[0]), float(batchSize))))
         saver = tf.train.Saver(max_to_keep=saveMaxKeep)
         logFile = outPath + '.log'
 
         with tf.Session() as sess:
             if modelPath == '': sess.run(initOp)
             else: saver.restore(sess, modelPath)
-            nTrainBatches = int(np.ceil(float(trainX.shape[0])) / float(pretrainBatchSize))
-            nValidBatches = int(np.ceil(float(validX.shape[0])) / float(pretrainBatchSize))
+            nTrainBatches = int(old_div(np.ceil(float(trainX.shape[0])), float(pretrainBatchSize)))
+            nValidBatches = int(old_div(np.ceil(float(validX.shape[0])), float(pretrainBatchSize)))
 
             if modelPath== '':
                 for epoch in range(pretrainEpochs):
@@ -295,7 +301,7 @@ class Medgan(object):
                         validLossVec.append(loss)
                     validReverseLoss = 0.
                     buf = 'Pretrain_Epoch:%d, trainLoss:%f, validLoss:%f, validReverseLoss:%f' % (epoch, np.mean(trainLossVec), np.mean(validLossVec), validReverseLoss)
-                    print buf
+                    print(buf)
                     self.print2file(buf, logFile)
 
             idx = np.arange(trainX.shape[0])
@@ -315,7 +321,7 @@ class Medgan(object):
                         g_loss_vec.append(generatorLoss)
 
                 idx = np.arange(len(validX))
-                nValidBatches = int(np.ceil(float(len(validX)) / float(batchSize)))
+                nValidBatches = int(np.ceil(old_div(float(len(validX)), float(batchSize))))
                 validAccVec = []
                 validAucVec = []
                 for i in range(nBatches):
@@ -328,10 +334,10 @@ class Medgan(object):
                     validAccVec.append(validAcc)
                     validAucVec.append(validAuc)
                 buf = 'Epoch:%d, d_loss:%f, g_loss:%f, accuracy:%f, AUC:%f' % (epoch, np.mean(d_loss_vec), np.mean(g_loss_vec), np.mean(validAccVec), np.mean(validAucVec))
-                print buf
+                print(buf)
                 self.print2file(buf, logFile)
                 savePath = saver.save(sess, outPath, global_step=epoch)
-        print  savePath
+        print(savePath)
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
