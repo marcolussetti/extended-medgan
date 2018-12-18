@@ -369,6 +369,9 @@ def parse_arguments(parser):
     parser.add_argument('--batch_size', type=int, default=1000, help='The size of a single mini-batch for training medGAN. (default value: 1000)')
     parser.add_argument('--save_max_keep', type=int, default=0, help='The number of models to keep. Setting this to 0 will save models for every epoch. (default value: 0)')
     parser.add_argument('--generate_data', type=str2bool, default=False, help='If True the model generates data, if False the model is trained (default value: False)')
+
+    parser.add_argument('--generation-batch', type=int, default=10000, help='Size of the batch generated from the model (default value: 10000)')
+
     args = parser.parse_args()
     return args
 
@@ -408,7 +411,7 @@ if __name__ == '__main__':
     else:
     # Generate synthetic data using a trained model
     # You must specify "--model_file" and "<out_file>" to generate synthetic data.
-        mg.generateData(nSamples=10000,
+        mg.generateData(nSamples=args.generation_batch,
                         modelFile=args.model_file,
                         batchSize=args.batch_size,
                         outFile=args.out_file)
