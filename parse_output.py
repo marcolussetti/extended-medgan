@@ -28,21 +28,18 @@ import numpy as np
 from docopt import docopt
 from future import standard_library
 
-# Import submodule
-sys.path.append('icd9')
 from icd9 import ICD9
 
 standard_library.install_aliases()
 
 
-def export_to_csv(path, table, header):
+def export_to_csv(path, table, header=[]):
     with open(path, "w", newline="") as csv_file:
-        csv_writer = csv.writer(csv_file, delimiter=",", quoting=csv.QUOTE_MINIMAL)
+        csv_writer = csv.writer(csv_file, delimiter=",", quoting=csv.QUOTE_ALL)
         # Write header
         csv_writer.writerow(header)
         # Write content
-        for row in table:
-            csv_writer.writerow(row)
+        csv_writer.writerows(table)
 
 
 def create_descriptive_recordset(input_data, one_hot_map):
@@ -59,12 +56,12 @@ def create_descriptive_recordset(input_data, one_hot_map):
         "dia_": "diagnoses"
     }
     enabled_descriptors = set()
-    tree = ICD9('icd9\codes.json')
+    tree = ICD9()
     diagnostic_codes_map = {}
     for key in one_hot_map.keys():
         for descriptor in descriptors.keys():
             if key.startswith(descriptor):
-                enabled_descriptors.add(descriptors[key])
+                enabled_descriptors.add(descriptors[descriptor])
         if key.startswith("dia_"):
             try:
                 condition = key[len("dia_D_"):]
@@ -75,6 +72,7 @@ def create_descriptive_recordset(input_data, one_hot_map):
     DescriptiveRecord = namedtuple("DescriptiveRecord", list(sorted(enabled_descriptors)))
 
     # Actually process stuff
+    sparse_descriptive_records = []
     for i, record in enumerate(input_data):
 
         record_lists = {key: [] for key in enabled_descriptors}
@@ -82,11 +80,11 @@ def create_descriptive_recordset(input_data, one_hot_map):
         # Process record
         for column in record:
             for column_mask, column_description in descriptors.items():
-                if column.starts_with(column_mask):
+                if column.startswith(column_mask):
                     if column_mask == "dia_":
                         condition = column[len("dia_D_"):]
                         condition_description = "{}-{}".format(condition,
-                                                               diagnostic_codes_map[condition])
+                                                               diagnostic_codes_map[column])
                         record_lists[column_description].append(condition_description)
                     else:
                         record_lists[column_description].append(column[len(column_mask):])
@@ -97,7 +95,7 @@ def create_descriptive_recordset(input_data, one_hot_map):
         sparse_descriptive_records.append(DescriptiveRecord(*packaged_record))
 
         # Report progress
-        if i % 1000 == 0:
+        if (i + 1) % 1000 == 0:
             print("{} records processed so far.".format(i + 1))
 
     return sparse_descriptive_records, list(sorted(enabled_descriptors))
@@ -131,11 +129,11 @@ if __name__ == '__main__':
             or arguments["--diag-frequency"]:
         cleaned_data = [[index_map[i] for i, item in enumerate(row) if int(round(item)) == 1]
                         for row in data]
-        sparse_descriptive_records, descriptive_header = create_descriptive_recordset(data,
+        sparse_descriptive_records, descriptive_header = create_descriptive_recordset(cleaned_data,
                                                                                       one_hot_map)
 
         if arguments["--descriptive"]:
-            processed_descriptive_records = [[",".join(item) for item in record]
+            processed_descriptive_records = [[";".join(item) for item in record]
                                              for record in sparse_descriptive_records]
             export_to_csv(
                 "{}_descriptive.csv".format(arguments["OUTPUT_PATH"]),
@@ -145,32 +143,40 @@ if __name__ == '__main__':
 
         if arguments["--frequency"]:
             records_counter = Counter(sparse_descriptive_records)
+            parsed_records_counter = [[count, *[";".join(item) for item in record]]
+                                      for record, count in records_counter.most_common()]
 
             export_to_csv(
                 "{}_frequency.csv".format(arguments["OUTPUT_PATH"]),
-                [[count] + list(record) for record, count in records_counter.most_common()],
+                parsed_records_counter,
                 header=["Count"] + descriptive_header
             )
 
         if arguments["--diag-frequency"]:
             filtered_records = [record.diagnoses for record in sparse_descriptive_records]
             records_counter = Counter(filtered_records)
+            parsed_records_counter = [[count, ";".join(record)]
+                                      for record, count in records_counter.most_common()]
+
             export_to_csv(
                 "{}_diagnoses_frequency.csv".format(arguments["OUTPUT_PATH"]),
-                [[count] + list(record) for record, count in records_counter.most_common()],
-                header=["Count"] + descriptive_header
+                parsed_records_counter,
+                header=["Count", "Diagnoses"]
             )
 
         if arguments["--demo-frequency"]:
             filtered_records = [
-                {field: record[field] for field in record._fields if field != "diagnoses"}
+                tuple({field: getattr(record, field)
+                       for field in record._fields if field != "diagnoses"}.items())
                 for record in sparse_descriptive_records
             ]
-
             records_counter = Counter(filtered_records)
+            parsed_records_counter = [[count, record]
+                                      for record, count in records_counter.most_common()]
+
             export_to_csv(
                 "{}_demo_frequency.csv".format(arguments["OUTPUT_PATH"]),
-                [[count] + list(record.values())
+                [[count, *[";".join(item[1]) for item in record]]
                  for record, count in records_counter.most_common()],
-                header=["Count"] + list(filtered_records[0].keys())
+                header=["Count"] + list([key for key, values in filtered_records[0]])
             )
