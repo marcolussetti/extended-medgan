@@ -2,7 +2,7 @@
 Process Mimic.
 
 Usage:
-    process_mimic.py ADMISSIONS_PATH DIAGNOSES_ICD_PATH OUTPUT_PATH [--count] [--full-icd9] [--admission] [--discharge] [--insurance] [--language] [--religion] [--marital] [--ethnicity] [--gender]
+    process_mimic.py ADMISSIONS_PATH DIAGNOSES_ICD_PATH PATIENTS_PATH OUTPUT_PATH [--count] [--full-icd9] [--admission] [--discharge] [--insurance] [--language] [--religion] [--marital] [--ethnicity] [--gender]
     process_mimic.py (-h | --help)
     process_mimic.py --version
 
@@ -62,7 +62,7 @@ def convert_to_3digit_icd9(diagnosis):
             return diagnosis
 
 
-def ingest_data(admission_path, diagnosis_path):
+def ingest_data(admission_path, diagnosis_path, patient_path):
     with open(admission_path, 'r') as f:
         csv_reader = csv.reader(f, delimiter=',', quotechar='"')
         AdmissionRecord = namedtuple(
@@ -83,21 +83,30 @@ def ingest_data(admission_path, diagnosis_path):
         diagnosis_list = [DiagnosisRecord(*[field.lower() for field in line])
                           for line in csv_reader]
 
+    with open(patient_path, 'r') as f:
+        csv_reader = csv.reader(f, delimiter=',', quotechar='"')
+        PatientRecord = namedtuple(
+            "PatientRecord",
+            [field.lower() for field in csv_reader.__next__()]
+        )
+
+        patient_list = [PatientRecord(*[field.lower() for field in line])
+                        for line in csv_reader]
+
     assert len(admissions_list) > 0, "Empty admissions file, reset position"
     assert len(diagnosis_list) > 0, "Empty diagnosis file, reset position"
+    assert len(patient_list) > 0, "Empty patients file, reset position"
 
-    return admissions_list, diagnosis_list
+    return admissions_list, diagnosis_list, patient_list
 
 
 if __name__ == '__main__':
     arguments = docopt(__doc__, version='Process Mimic 1.1')
 
-    admission_path = arguments["ADMISSIONS_PATH"]
-    diagnosis_path = arguments["DIAGNOSES_ICD_PATH"]
-    output_path = arguments["OUTPUT_PATH"]
-
     # Ingest CSVs
-    admissions_list, diagnosis_list = ingest_data(admission_path, diagnosis_path)
+    admissions_list, diagnosis_list, patients_list = ingest_data(
+        arguments["ADMISSIONS_PATH"], arguments["DIAGNOSES_ICD_PATH"], arguments["PATIENTS_PATH"]
+    )
 
     # Extract types for demographic data
     if arguments["--admission"]:
@@ -114,6 +123,14 @@ if __name__ == '__main__':
         marital_statuses = set([i.marital_status for i in admissions_list])
     if arguments["--ethnicity"]:
         ethnicities = set([i.ethnicity for i in admissions_list])
+    if arguments["--gender"]:
+        genders = set([i.gender for i in patients_list])
+
+    print('Building pid-patient mapping')
+    pid_patients_map = {}
+    for patient in patients_list:
+        pid = int(patient.subject_id)
+        pid_patients_map[pid] = patient
 
     print('Building pid-admission mapping, admission-date mapping')
     pid_admissions_map = {}
@@ -150,8 +167,12 @@ if __name__ == '__main__':
 
     for pid, admissions in pid_admissions_map.items():
         pid_sorted_visits_map[pid] = sorted(
-            [(admissions_date_map[int(admission.hadm_id)], admissions_diagnosis_map[admission_id],
-              admission)
+            [(
+                admissions_date_map[int(admission.hadm_id)],
+                admissions_diagnosis_map[int(admission.hadm_id)],
+                admission,
+                pid_patients_map[int(admission.subject_id)]
+            )
              for admission in admissions]
         )
 
@@ -180,8 +201,9 @@ if __name__ == '__main__':
                 one_hot.append("mar_" + visit[2].marital_status)
             if arguments["--ethnicity"]:
                 one_hot.append("eth_" + visit[2].ethnicity)
-            one_hot.extend(
-                ["dia_" + diagnosis for diagnosis in visit[1]])
+            if arguments["--gender"]:
+                one_hot.append("gen_" + visit[3].gender)
+            one_hot.extend(["dia_" + diagnosis for diagnosis in visit[1]])
 
             seq.append(one_hot)
         dates.append(date)
@@ -189,7 +211,6 @@ if __name__ == '__main__':
 
     print('Creating types')
     # We'll concatenate all of the one-hot encodings for each category
-
     diagnoses = set(itertools.chain(*admissions_diagnosis_map.values()))
     types = {"dia_" + diagnosis: i for i, diagnosis in enumerate(diagnoses)}
 
@@ -221,6 +242,10 @@ if __name__ == '__main__':
         ethnicities_offset = len(types)
         types.update({"eth_" + ethnicity: i + ethnicities_offset
                       for i, ethnicity in enumerate(ethnicities)})
+    if arguments["--gender"]:
+        gender_offset = len(types)
+        types.update({"gen_" + gender: i + gender_offset
+                      for i, gender in enumerate(genders)})
 
     print('Converting strSeqs to intSeqs, and making types')
     new_sequences = []
@@ -234,7 +259,6 @@ if __name__ == '__main__':
         new_sequences.append(new_patient)
 
     print('Constructing the matrix')
-
     patientsNumber = len(new_sequences)
     codesNumber = len(types)
     matrix = np.zeros((patientsNumber, codesNumber)).astype('float32')
@@ -249,6 +273,6 @@ if __name__ == '__main__':
                     matrix[i][code] = 1.
 
     # Dump results
-    pickle.dump(pids, open(output_path + '.pids', 'wb'), -1)
-    pickle.dump(matrix, open(output_path + '.matrix', 'wb'), -1)
-    pickle.dump(types, open(output_path + '.types', 'wb'), -1)
+    pickle.dump(pids, open(arguments["OUTPUT_PATH"] + '.pids', 'wb'), -1)
+    pickle.dump(matrix, open(arguments["OUTPUT_PATH"] + '.matrix', 'wb'), -1)
+    pickle.dump(types, open(arguments["OUTPUT_PATH"] + '.types', 'wb'), -1)
