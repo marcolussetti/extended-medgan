@@ -2,14 +2,17 @@
 Parse Output.
 
 Usage:
-    parse_output.py OUTPUT_PATH MATRIX_PATH [--straight-to-csv] [--round-to-csv] [--descriptive] [--frequency]
+    parse_output.py OUTPUT_PATH MATRIX_PATH [--straight-to-csv] [--round-to-csv] [--descriptive] [--frequency] [--demo-frequency] [--diag-frequency]
     parse_output.py (-h | --help)
     parse_output.py --version
 
 Options:
     --straight-to-csv   Export the numpy matrix to csv as is
     --round-to-csv      Export the numpy matrix to csv rounding to 0 or 1.
-    --descriptive       Prepare descriptive
+    --descriptive       Prepare descriptive records for each patient/admission.
+    --frequency         Condense descriptive records by frequency.
+    --demo-frequency    Condense descriptive records by frequency of demographic data.
+    --diag-frequency    Condense descriptive records by frequency of diagnoses.
     --h --help          Show this screen.
     --version           Show version.
 """
@@ -125,7 +128,7 @@ if __name__ == '__main__':
         )
 
     if arguments["--descriptive"] or arguments["--frequency"] or arguments["--demo-frequency"] \
-            or arguments["--diagnoses-frequency"]:
+            or arguments["--diag-frequency"]:
         cleaned_data = [[index_map[i] for i, item in enumerate(row) if int(round(item)) == 1]
                         for row in data]
         sparse_descriptive_records, descriptive_header = create_descriptive_recordset(data,
@@ -149,7 +152,7 @@ if __name__ == '__main__':
                 header=["Count"] + descriptive_header
             )
 
-        if arguments["--diagnoses-frequency"]:
+        if arguments["--diag-frequency"]:
             filtered_records = [record.diagnoses for record in sparse_descriptive_records]
             records_counter = Counter(filtered_records)
             export_to_csv(
